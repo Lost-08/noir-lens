@@ -74,6 +74,8 @@ private fun NoirLensApp() {
     var flash by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var exposure by remember { mutableFloatStateOf(0f) }
+    var selectedFilter by remember { mutableStateOf("NATURAL") }
+    var filterIntensity by remember { mutableFloatStateOf(0.8f) }
     var mode by remember { mutableStateOf("PHOTO") }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
@@ -136,12 +138,41 @@ private fun NoirLensApp() {
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    SmallTool(Icons.Default.FlashOn, if (flash) "FLASH ON" else "FLASH OFF", flash) { flash = !flash; capture?.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF }
-                    SmallTool(Icons.Default.Exposure, "EXPOSURE", false) { exposure = (exposure + 0.5f).let { if (it > 2f) -2f else it }; applyExposure(camera, exposure) }
+                    SmallTool(Icons.Default.FlashOn, if (flash) "FLASH ON" else "FLASH OFF", flash) {
+                        val cam = camera
+                        if (cam == null) {
+                            Toast.makeText(context, "Camera is starting", Toast.LENGTH_SHORT).show()
+                        } else if (!cam.cameraInfo.hasFlashUnit()) {
+                            flash = false
+                            capture?.flashMode = ImageCapture.FLASH_MODE_OFF
+                            Toast.makeText(context, "This camera has no flash unit", Toast.LENGTH_LONG).show()
+                        } else {
+                            flash = !flash
+                            capture?.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+                        }
+                    }
                     SmallTool(Icons.Default.Tune, "EDIT PHOTO", false) { galleryPicker.launch("image/*") }
-                    SmallTool(Icons.Default.AutoAwesome, "AI TOOLS", false) { Toast.makeText(context, "AI tools are planned as an optional module; no AI model is bundled in v1.", Toast.LENGTH_LONG).show() }
+                    SmallTool(Icons.Default.AutoAwesome, "AI TOOLS", false) { Toast.makeText(context, "AI enhancement is not available yet; a real model/service must be integrated.", Toast.LENGTH_LONG).show() }
                 }
-                Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 12.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("EXPOSURE", color = Muted, fontSize = 10.sp, letterSpacing = 1.2.sp, modifier = Modifier.width(82.dp))
+                    Slider(value = exposure, onValueChange = { exposure = it; applyExposure(camera, it) }, valueRange = -2f..2f, steps = 7, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
+                    Text("${if (exposure > 0f) "+" else ""}${exposure.format(1)}", color = Gold, fontSize = 11.sp, modifier = Modifier.width(43.dp))
+                }
+                Text("LOOK  ·  FILTER IS APPLIED TO THE SAVED PHOTO", color = Muted, fontSize = 9.sp, letterSpacing = 1.1.sp, modifier = Modifier.padding(top = 2.dp, bottom = 5.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf("NATURAL", "NOIR", "WARM FILM", "TEAL", "VINTAGE", "COOL", "FADE").forEach { look ->
+                        FilterPill(look, selectedFilter == look) { selectedFilter = look }
+                    }
+                }
+                if (selectedFilter != "NATURAL") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("INTENSITY", color = Muted, fontSize = 9.sp, modifier = Modifier.width(66.dp))
+                        Slider(value = filterIntensity, onValueChange = { filterIntensity = it }, valueRange = 0f..1f, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold))
+                        Text("${(filterIntensity * 100).roundToInt()}%", color = Gold, fontSize = 10.sp, modifier = Modifier.width(35.dp))
+                    }
+                }
+                Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 5.dp))
                 Slider(value = zoom, onValueChange = { zoom = it; camera?.cameraControl?.setZoomRatio(it) }, valueRange = 1f..4f, colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     IconButton(onClick = { galleryPicker.launch("image/*") }, modifier = Modifier.size(52.dp).border(1.dp, Color(0xFF3A3D43), RoundedCornerShape(15.dp))) { Icon(Icons.Default.Photo, "Choose photo", tint = Color.White) }
@@ -149,7 +180,7 @@ private fun NoirLensApp() {
                         Box(Modifier.size(76.dp).border(3.dp, Color.White, CircleShape).padding(6.dp).clip(CircleShape).background(Gold).clickable(enabled = permission) {
                             val imageCapture = capture
                             if (imageCapture == null) { Toast.makeText(context, "Camera is starting", Toast.LENGTH_SHORT).show() }
-                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context)) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context), selectedFilter, filterIntensity) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
                         }, contentAlignment = Alignment.Center) { Icon(Icons.Default.CameraAlt, null, tint = Ink, modifier = Modifier.size(29.dp)) }
                         Text(status, color = Muted, fontSize = 8.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 5.dp))
                     }
@@ -192,6 +223,23 @@ private fun RuleOfThirds(modifier: Modifier = Modifier) {
             drawLine(Color.White.copy(alpha = 0.42f), Offset(0f, y), Offset(size.width, y), stroke.width)
         }
     }
+}
+
+@Composable
+@Composable
+private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (selected) Ink else Color.White,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+        modifier = Modifier.clip(RoundedCornerShape(18.dp))
+            .background(if (selected) Gold else Panel)
+            .border(1.dp, if (selected) Gold else Color(0xFF34373D), RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    )
 }
 
 @Composable
@@ -257,14 +305,48 @@ private fun gradeBitmap(src: Bitmap, brightness: Float, saturation: Float, contr
     return out
 }
 
-private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, onResult: (String) -> Unit) {
+private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, filter: String, intensity: Float, onResult: (String) -> Unit) {
     val name = "NoirLens_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
     val values = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, name); put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg"); put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/NoirLens") }
     val options = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values).build()
     imageCapture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
-        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { onResult("PHOTO SAVED") }
+        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+            val uri = outputFileResults.savedUri
+            if (uri == null || filter == "NATURAL" || intensity <= 0f) {
+                onResult("PHOTO SAVED")
+            } else {
+                val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity) }.getOrDefault(false)
+                onResult(if (applied) "PHOTO SAVED · $filter" else "PHOTO SAVED · FILTER FAILED")
+            }
+        }
         override fun onError(exception: ImageCaptureException) { onResult("CAPTURE FAILED: ${exception.message ?: "unknown error"}") }
     })
+}
+
+private fun applyPhotoFilter(context: android.content.Context, uri: android.net.Uri, filter: String, intensity: Float): Boolean {
+    val source = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return false
+    val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+    val identity = ColorMatrix().array
+    val look = when (filter) {
+        "NOIR" -> ColorMatrix().apply { setSaturation(0f) }.array
+        "WARM FILM" -> floatArrayOf(1.08f,0.02f,0f,0f,8f, 0.01f,1f,0f,0f,2f, 0f,0f,0.88f,0f,-5f, 0f,0f,0f,1f,0f)
+        "TEAL" -> floatArrayOf(0.92f,0f,0.02f,0f,2f, 0f,1.02f,0.02f,0f,3f, 0.02f,0.05f,1.08f,0f,8f, 0f,0f,0f,1f,0f)
+        "VINTAGE" -> floatArrayOf(0.9f,0.08f,0.02f,0f,12f, 0.04f,0.88f,0.04f,0f,5f, 0.02f,0.06f,0.78f,0f,-4f, 0f,0f,0f,1f,0f)
+        "COOL" -> floatArrayOf(0.94f,0f,0f,0f,-2f, 0f,1f,0.02f,0f,1f, 0.02f,0.04f,1.1f,0f,8f, 0f,0f,0f,1f,0f)
+        "FADE" -> floatArrayOf(0.82f,0f,0f,0f,24f, 0f,0.82f,0f,0f,24f, 0f,0f,0.82f,0f,24f, 0f,0f,0f,1f,0f)
+        else -> identity
+    }
+    val blended = FloatArray(20) { i -> identity[i] + (look[i] - identity[i]) * intensity.coerceIn(0f, 1f) }
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(blended))
+    }
+    android.graphics.Canvas(output).drawBitmap(source, 0f, 0f, paint)
+    val saved = context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+        output.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+    } ?: false
+    source.recycle()
+    output.recycle()
+    return saved
 }
 
 private fun applyExposure(camera: Camera?, ev: Float) {
