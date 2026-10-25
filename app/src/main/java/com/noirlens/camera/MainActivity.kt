@@ -78,6 +78,10 @@ private fun NoirLensApp() {
     var exposure by remember { mutableFloatStateOf(0f) }
     var selectedFilter by remember { mutableStateOf("NATURAL") }
     var filterIntensity by remember { mutableFloatStateOf(0.8f) }
+    var redMix by remember { mutableFloatStateOf(1f) }
+    var greenMix by remember { mutableFloatStateOf(1f) }
+    var blueMix by remember { mutableFloatStateOf(1f) }
+    var showColorMix by remember { mutableStateOf(true) }
     var mode by remember { mutableStateOf("PHOTO") }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
@@ -131,7 +135,7 @@ private fun NoirLensApp() {
                         if (selectedFilter != "NATURAL" && filterIntensity > 0f) {
                             Box(
                                 Modifier.fillMaxSize()
-                                    .background(liveFilterTint(selectedFilter, filterIntensity))
+                                    .background(liveFilterTint(selectedFilter, filterIntensity, redMix, greenMix, blueMix))
                             )
                         }
                         if (grid) RuleOfThirds(Modifier.fillMaxSize())
@@ -189,10 +193,20 @@ private fun NoirLensApp() {
                 }
                 if (selectedFilter != "NATURAL") {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("INTENSITY", color = Muted, fontSize = 9.sp, modifier = Modifier.width(66.dp))
+                        Text("LOOK", color = Muted, fontSize = 9.sp, modifier = Modifier.width(66.dp))
                         Slider(value = filterIntensity, onValueChange = { filterIntensity = it }, valueRange = 0f..1f, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold))
                         Text("${(filterIntensity * 100).roundToInt()}%", color = Gold, fontSize = 10.sp, modifier = Modifier.width(35.dp))
                     }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("COLOR MIX", color = Gold, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showColorMix = !showColorMix }) { Text(if (showColorMix) "HIDE" else "ADJUST", color = Gold, fontSize = 10.sp) }
+                    TextButton(onClick = { redMix = 1f; greenMix = 1f; blueMix = 1f }) { Text("RESET", color = Muted, fontSize = 10.sp) }
+                }
+                if (showColorMix) {
+                    ColorMixSlider("RED", redMix, Color(0xFFFF6B6B)) { redMix = it }
+                    ColorMixSlider("GREEN", greenMix, Color(0xFF77D98B)) { greenMix = it }
+                    ColorMixSlider("BLUE", blueMix, Color(0xFF78B9FF)) { blueMix = it }
                 }
                 Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 5.dp))
                 Slider(value = zoom, onValueChange = { zoom = it; camera?.cameraControl?.setZoomRatio(it) }, valueRange = 1f..4f, colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
@@ -202,7 +216,7 @@ private fun NoirLensApp() {
                         Box(Modifier.size(76.dp).border(3.dp, Color.White, CircleShape).padding(6.dp).clip(CircleShape).background(Gold).clickable(enabled = permission) {
                             val imageCapture = capture
                             if (imageCapture == null) { Toast.makeText(context, "Camera is starting", Toast.LENGTH_SHORT).show() }
-                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context), selectedFilter, filterIntensity) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context), selectedFilter, filterIntensity, redMix, greenMix, blueMix) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
                         }, contentAlignment = Alignment.Center) { Icon(Icons.Default.CameraAlt, null, tint = Ink, modifier = Modifier.size(29.dp)) }
                         Text(status, color = Muted, fontSize = 8.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 5.dp))
                     }
@@ -252,7 +266,7 @@ private fun RuleOfThirds(modifier: Modifier = Modifier) {
  * Lightweight live view look overlay. This gives immediate visual feedback on the viewfinder.
  * The still image is graded with the corresponding color matrix after capture.
  */
-private fun liveFilterTint(filter: String, intensity: Float): Color {
+private fun liveFilterTint(filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float): Color {
     val tint = when (filter) {
         "NOIR", "MATTE B&W", "SILVER", "MONO WARM", "MONO COOL" -> Color(0xFF777777)
         "WARM FILM", "GOLDEN", "SUNSET", "AMBER", "AUTUMN", "DESERT", "SEPIA" -> Color(0xFFFFA34D)
@@ -271,7 +285,22 @@ private fun liveFilterTint(filter: String, intensity: Float): Color {
         "MIDNIGHT", "LOW KEY", "MOODY" -> 0.22f
         else -> 0.15f
     }
-    return tint.copy(alpha = baseAlpha * intensity.coerceIn(0f, 1f))
+    val mixed = Color(
+        (tint.red * redMix).coerceIn(0f, 1f),
+        (tint.green * greenMix).coerceIn(0f, 1f),
+        (tint.blue * blueMix).coerceIn(0f, 1f),
+        1f
+    )
+    return mixed.copy(alpha = baseAlpha * intensity.coerceIn(0f, 1f))
+}
+
+@Composable
+private fun ColorMixSlider(label: String, value: Float, tint: Color, onChange: (Float) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(30.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = tint, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(48.dp))
+        Slider(value = value, onValueChange = onChange, valueRange = 0.5f..1.5f, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = tint, activeTrackColor = tint, inactiveTrackColor = Panel))
+        Text(String.format(Locale.US, "%.2f×", value), color = Color.White, fontSize = 9.sp, modifier = Modifier.width(40.dp))
+    }
 }
 
 @Composable
@@ -353,7 +382,7 @@ private fun gradeBitmap(src: Bitmap, brightness: Float, saturation: Float, contr
     return out
 }
 
-private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, filter: String, intensity: Float, onResult: (String) -> Unit) {
+private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float, onResult: (String) -> Unit) {
     val name = "NoirLens_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
     val values = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, name); put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg"); put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/NoirLens") }
     val options = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values).build()
@@ -364,7 +393,7 @@ private fun saveCapture(context: android.content.Context, imageCapture: ImageCap
                 onResult("PHOTO SAVED")
             } else {
                 Thread({
-                    val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity) }.getOrDefault(false)
+                    val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity, redMix, greenMix, blueMix) }.getOrDefault(false)
                     executor.execute { onResult(if (applied) "PHOTO SAVED · $filter" else "PHOTO SAVED · FILTER FAILED") }
                 }, "NoirLens-Filter").start()
             }
@@ -373,7 +402,7 @@ private fun saveCapture(context: android.content.Context, imageCapture: ImageCap
     })
 }
 
-private fun applyPhotoFilter(context: android.content.Context, uri: android.net.Uri, filter: String, intensity: Float): Boolean {
+private fun applyPhotoFilter(context: android.content.Context, uri: android.net.Uri, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float): Boolean {
     val source = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return false
     val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
     val identity = ColorMatrix().array
@@ -420,6 +449,10 @@ private fun applyPhotoFilter(context: android.content.Context, uri: android.net.
         else -> identity
     }
     val blended = FloatArray(20) { i -> identity[i] + (look[i] - identity[i]) * intensity.coerceIn(0f, 1f) }
+    // Independently scale each RGB channel; values below 1 reduce that channel, above 1 boost it.
+    for (i in 0..4) blended[i] *= redMix.coerceIn(0.5f, 1.5f)
+    for (i in 5..9) blended[i] *= greenMix.coerceIn(0.5f, 1.5f)
+    for (i in 10..14) blended[i] *= blueMix.coerceIn(0.5f, 1.5f)
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
         colorFilter = ColorMatrixColorFilter(ColorMatrix(blended))
     }
