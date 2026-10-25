@@ -315,8 +315,10 @@ private fun saveCapture(context: android.content.Context, imageCapture: ImageCap
             if (uri == null || filter == "NATURAL" || intensity <= 0f) {
                 onResult("PHOTO SAVED")
             } else {
-                val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity) }.getOrDefault(false)
-                onResult(if (applied) "PHOTO SAVED · $filter" else "PHOTO SAVED · FILTER FAILED")
+                Thread({
+                    val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity) }.getOrDefault(false)
+                    executor.execute { onResult(if (applied) "PHOTO SAVED · $filter" else "PHOTO SAVED · FILTER FAILED") }
+                }, "NoirLens-Filter").start()
             }
         }
         override fun onError(exception: ImageCaptureException) { onResult("CAPTURE FAILED: ${exception.message ?: "unknown error"}") }
