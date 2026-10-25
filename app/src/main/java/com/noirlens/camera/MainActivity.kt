@@ -389,7 +389,8 @@ private fun saveCapture(context: android.content.Context, imageCapture: ImageCap
     imageCapture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
             val uri = outputFileResults.savedUri
-            if (uri == null || filter == "NATURAL" || intensity <= 0f) {
+            val hasRgbAdjustment = kotlin.math.abs(redMix - 1f) > 0.001f || kotlin.math.abs(greenMix - 1f) > 0.001f || kotlin.math.abs(blueMix - 1f) > 0.001f
+            if (uri == null || ((filter == "NATURAL" || intensity <= 0f) && !hasRgbAdjustment)) {
                 onResult("PHOTO SAVED")
             } else {
                 Thread({
