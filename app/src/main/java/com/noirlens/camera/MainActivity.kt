@@ -126,6 +126,14 @@ private fun NoirLensApp() {
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xFF202329))) {
                     if (permission) {
                         CameraPreview(onCameraReady = { cam, imageCapture -> camera = cam; capture = imageCapture })
+                        // Live tint preview: selected look updates immediately while composing the shot.
+                        // Full color-matrix grading is still applied to the captured JPEG after capture.
+                        if (selectedFilter != "NATURAL" && filterIntensity > 0f) {
+                            Box(
+                                Modifier.fillMaxSize()
+                                    .background(liveFilterTint(selectedFilter, filterIntensity))
+                            )
+                        }
                         if (grid) RuleOfThirds(Modifier.fillMaxSize())
                         Column(Modifier.align(Alignment.TopStart).padding(14.dp)) {
                             Text("● LIVE", color = Color(0xFFDB796F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -164,7 +172,7 @@ private fun NoirLensApp() {
                     Slider(value = exposure, onValueChange = { exposure = it; applyExposure(camera, it) }, valueRange = -2f..2f, steps = 7, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
                     Text("${if (exposure > 0f) "+" else ""}${exposure.format(1)}", color = Gold, fontSize = 11.sp, modifier = Modifier.width(43.dp))
                 }
-                Text("LOOK  ·  FILTER IS APPLIED TO THE SAVED PHOTO", color = Muted, fontSize = 9.sp, letterSpacing = 1.1.sp, modifier = Modifier.padding(top = 2.dp, bottom = 5.dp))
+                Text("LIVE LOOK PREVIEW  ·  FINAL COLOR GRADE APPLIED AFTER CAPTURE", color = Muted, fontSize = 9.sp, letterSpacing = 0.8.sp, modifier = Modifier.padding(top = 2.dp, bottom = 5.dp))
                 Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     listOf(
                         "NATURAL", "NOIR", "SILVER", "MATTE B&W", "WARM FILM",
@@ -240,6 +248,32 @@ private fun RuleOfThirds(modifier: Modifier = Modifier) {
 }
 
 @Composable
+/**
+ * Lightweight live view look overlay. This gives immediate visual feedback on the viewfinder.
+ * The still image is graded with the corresponding color matrix after capture.
+ */
+private fun liveFilterTint(filter: String, intensity: Float): Color {
+    val tint = when (filter) {
+        "NOIR", "MATTE B&W", "SILVER", "MONO WARM", "MONO COOL" -> Color(0xFF777777)
+        "WARM FILM", "GOLDEN", "SUNSET", "AMBER", "AUTUMN", "DESERT", "SEPIA" -> Color(0xFFFFA34D)
+        "PORTRA", "ROSE", "BLOOM", "SPRING" -> Color(0xFFFFB5C8)
+        "TEAL", "TEAL ORANGE", "OCEAN" -> Color(0xFF35B8B0)
+        "VINTAGE", "RETRO" -> Color(0xFFB58B59)
+        "FADE", "CREAM", "PASTEL", "HIGH KEY" -> Color(0xFFFFE9C9)
+        "COOL", "ARCTIC", "FROST", "BLUE HOUR" -> Color(0xFF77BCEB)
+        "MOODY", "CINEMA", "DRAMA", "LOW KEY", "MIDNIGHT" -> Color(0xFF17233D)
+        "FOREST", "OLIVE" -> Color(0xFF547A43)
+        "CRISP", "POP", "CROSS PROCESS" -> Color(0xFFFFD54F)
+        else -> Color.Transparent
+    }
+    val baseAlpha = when (filter) {
+        "NOIR", "MATTE B&W", "MONO WARM", "MONO COOL" -> 0.30f
+        "MIDNIGHT", "LOW KEY", "MOODY" -> 0.22f
+        else -> 0.15f
+    }
+    return tint.copy(alpha = baseAlpha * intensity.coerceIn(0f, 1f))
+}
+
 @Composable
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     Text(
