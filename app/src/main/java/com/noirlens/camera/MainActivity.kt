@@ -86,6 +86,9 @@ private fun NoirLensApp() {
     var warmth by remember { mutableFloatStateOf(0f) }
     var showEditor by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("READY TO SHOOT") }
+    LaunchedEffect(flash, capture) {
+        capture?.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+    }
     val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }
@@ -161,7 +164,16 @@ private fun NoirLensApp() {
                 }
                 Text("LOOK  ·  FILTER IS APPLIED TO THE SAVED PHOTO", color = Muted, fontSize = 9.sp, letterSpacing = 1.1.sp, modifier = Modifier.padding(top = 2.dp, bottom = 5.dp))
                 Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf("NATURAL", "NOIR", "WARM FILM", "TEAL", "VINTAGE", "COOL", "FADE").forEach { look ->
+                    listOf(
+                        "NATURAL", "NOIR", "SILVER", "MATTE B&W", "WARM FILM",
+                        "PORTRA", "GOLDEN", "SUNSET", "TEAL", "TEAL ORANGE",
+                        "VINTAGE", "RETRO", "FADE", "COOL", "ARCTIC",
+                        "MOODY", "CINEMA", "DRAMA", "AMBER", "ROSE",
+                        "BLOOM", "FOREST", "OLIVE", "OCEAN", "MIDNIGHT",
+                        "BLUE HOUR", "DESERT", "CREAM", "PASTEL", "POP",
+                        "CRISP", "HIGH KEY", "LOW KEY", "SEPIA", "CROSS PROCESS",
+                        "FROST", "AUTUMN", "SPRING", "MONO WARM", "MONO COOL"
+                    ).forEach { look ->
                         FilterPill(look, selectedFilter == look) { selectedFilter = look }
                     }
                 }
@@ -330,12 +342,45 @@ private fun applyPhotoFilter(context: android.content.Context, uri: android.net.
     val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
     val identity = ColorMatrix().array
     val look = when (filter) {
-        "NOIR" -> ColorMatrix().apply { setSaturation(0f) }.array
-        "WARM FILM" -> floatArrayOf(1.08f,0.02f,0f,0f,8f, 0.01f,1f,0f,0f,2f, 0f,0f,0.88f,0f,-5f, 0f,0f,0f,1f,0f)
-        "TEAL" -> floatArrayOf(0.92f,0f,0.02f,0f,2f, 0f,1.02f,0.02f,0f,3f, 0.02f,0.05f,1.08f,0f,8f, 0f,0f,0f,1f,0f)
-        "VINTAGE" -> floatArrayOf(0.9f,0.08f,0.02f,0f,12f, 0.04f,0.88f,0.04f,0f,5f, 0.02f,0.06f,0.78f,0f,-4f, 0f,0f,0f,1f,0f)
-        "COOL" -> floatArrayOf(0.94f,0f,0f,0f,-2f, 0f,1f,0.02f,0f,1f, 0.02f,0.04f,1.1f,0f,8f, 0f,0f,0f,1f,0f)
-        "FADE" -> floatArrayOf(0.82f,0f,0f,0f,24f, 0f,0.82f,0f,0f,24f, 0f,0f,0.82f,0f,24f, 0f,0f,0f,1f,0f)
+        "NOIR" -> filterMatrix(1f, 1f, 1f, 0f, 0f, 0f, 0f)
+        "SILVER" -> filterMatrix(0.96f, 1.04f, 1.04f, 1.04f, 2f, 2f, 0f)
+        "MATTE B&W" -> filterMatrix(0.88f, 0.94f, 0.94f, 0.94f, 18f, 18f, 0f)
+        "WARM FILM" -> filterMatrix(1.02f, 1.10f, 1.02f, 0.88f, 10f, 2f, -7f)
+        "PORTRA" -> filterMatrix(1.05f, 1.08f, 1.01f, 0.94f, 8f, 3f, -2f)
+        "GOLDEN" -> filterMatrix(1.04f, 1.16f, 1.03f, 0.82f, 18f, 5f, -10f)
+        "SUNSET" -> filterMatrix(1.08f, 1.18f, 0.98f, 0.82f, 20f, 1f, -7f)
+        "TEAL" -> filterMatrix(1.02f, 0.92f, 1.03f, 1.10f, -2f, 5f, 10f)
+        "TEAL ORANGE" -> filterMatrix(1.10f, 1.12f, 0.98f, 1.08f, 12f, 1f, 7f)
+        "VINTAGE" -> filterMatrix(0.92f, 0.96f, 0.88f, 0.76f, 14f, 4f, -6f)
+        "RETRO" -> filterMatrix(0.96f, 1.08f, 0.92f, 0.78f, 12f, 3f, -8f)
+        "FADE" -> filterMatrix(0.88f, 0.86f, 0.86f, 0.86f, 26f, 26f, 26f)
+        "COOL" -> filterMatrix(1.04f, 0.94f, 1.01f, 1.12f, -3f, 2f, 12f)
+        "ARCTIC" -> filterMatrix(1.08f, 0.88f, 1.02f, 1.18f, -5f, 4f, 18f)
+        "MOODY" -> filterMatrix(0.86f, 0.92f, 0.96f, 1.02f, -8f, -3f, 2f)
+        "CINEMA" -> filterMatrix(0.94f, 1.05f, 0.98f, 1.04f, 3f, 1f, 5f)
+        "DRAMA" -> filterMatrix(1.12f, 1.08f, 1.02f, 1.02f, -6f, -4f, -2f)
+        "AMBER" -> filterMatrix(1.04f, 1.18f, 1.02f, 0.82f, 9f, 2f, -8f)
+        "ROSE" -> filterMatrix(1.06f, 1.12f, 0.94f, 1.02f, 9f, -1f, 3f)
+        "BLOOM" -> filterMatrix(0.92f, 1.08f, 1.04f, 1.08f, 12f, 8f, 10f)
+        "FOREST" -> filterMatrix(1.02f, 0.94f, 1.08f, 0.92f, 0f, 5f, -3f)
+        "OLIVE" -> filterMatrix(0.92f, 1.00f, 1.04f, 0.84f, 6f, 4f, -8f)
+        "OCEAN" -> filterMatrix(1.08f, 0.90f, 1.02f, 1.16f, -2f, 5f, 13f)
+        "MIDNIGHT" -> filterMatrix(0.82f, 0.82f, 0.90f, 1.12f, -12f, -6f, 8f)
+        "BLUE HOUR" -> filterMatrix(1.02f, 0.90f, 1.00f, 1.14f, -4f, 1f, 12f)
+        "DESERT" -> filterMatrix(0.94f, 1.10f, 1.02f, 0.86f, 14f, 7f, -5f)
+        "CREAM" -> filterMatrix(0.86f, 1.06f, 1.02f, 0.94f, 14f, 10f, 4f)
+        "PASTEL" -> filterMatrix(0.82f, 1.04f, 1.04f, 1.02f, 18f, 16f, 14f)
+        "POP" -> filterMatrix(1.22f, 1.08f, 1.04f, 1.02f, 2f, 1f, 0f)
+        "CRISP" -> filterMatrix(1.12f, 1.04f, 1.04f, 1.04f, 0f, 0f, 0f)
+        "HIGH KEY" -> filterMatrix(0.92f, 1.06f, 1.06f, 1.06f, 20f, 20f, 20f)
+        "LOW KEY" -> filterMatrix(0.92f, 0.78f, 0.78f, 0.82f, -18f, -18f, -14f)
+        "SEPIA" -> filterMatrix(0.88f, 1.10f, 0.94f, 0.72f, 15f, 6f, -8f)
+        "CROSS PROCESS" -> filterMatrix(1.10f, 1.10f, 0.92f, 1.10f, 8f, -2f, 10f)
+        "FROST" -> filterMatrix(0.94f, 0.92f, 1.04f, 1.14f, 7f, 12f, 18f)
+        "AUTUMN" -> filterMatrix(1.02f, 1.14f, 1.00f, 0.82f, 12f, 3f, -10f)
+        "SPRING" -> filterMatrix(0.92f, 1.06f, 1.06f, 1.00f, 10f, 12f, 4f)
+        "MONO WARM" -> filterMatrix(0.02f, 1.08f, 0.94f, 0.78f, 12f, 4f, -5f)
+        "MONO COOL" -> filterMatrix(0.02f, 0.88f, 1.02f, 1.14f, -3f, 5f, 12f)
         else -> identity
     }
     val blended = FloatArray(20) { i -> identity[i] + (look[i] - identity[i]) * intensity.coerceIn(0f, 1f) }
@@ -349,6 +394,18 @@ private fun applyPhotoFilter(context: android.content.Context, uri: android.net.
     source.recycle()
     output.recycle()
     return saved
+}
+
+
+private fun filterMatrix(saturation: Float, red: Float, green: Float, blue: Float, redOffset: Float, greenOffset: Float, blueOffset: Float): FloatArray {
+    val matrix = ColorMatrix(floatArrayOf(
+        red, 0f, 0f, 0f, redOffset,
+        0f, green, 0f, 0f, greenOffset,
+        0f, 0f, blue, 0f, blueOffset,
+        0f, 0f, 0f, 1f, 0f
+    ))
+    matrix.postConcat(ColorMatrix().apply { setSaturation(saturation) })
+    return matrix.array
 }
 
 private fun applyExposure(camera: Camera?, ev: Float) {
