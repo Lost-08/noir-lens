@@ -83,6 +83,12 @@ private fun NoirLensApp() {
     var blueMix by remember { mutableFloatStateOf(1f) }
     var showColorMix by remember { mutableStateOf(true) }
     var mode by remember { mutableStateOf("PHOTO") }
+    var cinemaMode by remember { mutableStateOf(false) }
+    var selectedLens by remember { mutableStateOf("35mm Cinema") }
+    var gradingExpanded by remember { mutableStateOf(false) }
+    var cyanMix by remember { mutableFloatStateOf(1f) }
+    var magentaMix by remember { mutableFloatStateOf(1f) }
+    var yellowMix by remember { mutableFloatStateOf(1f) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
     var pickedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -191,6 +197,29 @@ private fun NoirLensApp() {
                         FilterPill(look, selectedFilter == look) { selectedFilter = look }
                     }
                 }
+                Row(Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 5.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf("PHOTO", "VIDEO", "PORTRAIT", "NIGHT", "CINEMA").forEach { tab ->
+                        FilterPill(tab, if (tab == "CINEMA") cinemaMode else (!cinemaMode && mode == tab), {
+                            if (tab == "CINEMA") cinemaMode = !cinemaMode else { cinemaMode = false; mode = tab }
+                        })
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("HD", color = Gold, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterVertically).clip(RoundedCornerShape(8.dp)).border(1.dp, Gold, RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 6.dp))
+                }
+                if (cinemaMode) {
+                    Text("CINEMA LENS · SELECT A LOOK", color = Gold, fontSize = 9.sp, letterSpacing = 1.1.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("18mm Wide", "24mm Wide", "28mm Street", "35mm Cinema", "40mm Vintage", "50mm Prime", "58mm Portrait", "65mm Cinema", "75mm Portrait", "85mm Portrait", "90mm Macro", "100mm Macro", "105mm Prime", "135mm Tele", "200mm Tele", "Anamorphic 1.33x", "Anamorphic 1.5x", "Anamorphic 1.8x", "Anamorphic 2.0x", "Super 35", "Full Frame", "Vintage Glass", "Soft Focus", "Dream Glow", "Clean Digital", "Film 5219", "Film 500T", "Film 250D", "Film 50D", "HD Detail").forEachIndexed { index, lens ->
+                            FilterPill(lens, selectedLens == lens) {
+                                selectedLens = lens
+                                val lensZoom = when (index) { 0 -> 1f; 1 -> 1.15f; 2 -> 1.25f; 3 -> 1.4f; 4 -> 1.5f; 5 -> 1.7f; 6 -> 1.9f; 7 -> 2.1f; 8 -> 2.3f; 9 -> 2.5f; 10 -> 2.7f; 11 -> 2.9f; 12 -> 3.1f; 13 -> 3.3f; else -> 4f }
+                                zoom = lensZoom.coerceIn(1f, 4f); camera?.cameraControl?.setZoomRatio(zoom)
+                                selectedFilter = when { lens.contains("Anamorphic") -> "CINEMA"; lens.contains("Vintage") || lens.contains("Film") -> "WARM FILM"; lens.contains("Dream") || lens.contains("Soft") -> "BLOOM"; lens == "HD Detail" || lens == "Clean Digital" -> "CRISP"; lens.contains("Portrait") -> "PORTRA"; else -> "CINEMA" }
+                            }
+                        }
+                    }
+                    Text("Lens names are creative presets; framing uses supported digital zoom. True optical lenses depend on your phone hardware.", color = Muted, fontSize = 9.sp, lineHeight = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 3.dp))
+                }
                 if (selectedFilter != "NATURAL") {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("LOOK", color = Muted, fontSize = 9.sp, modifier = Modifier.width(66.dp))
@@ -199,14 +228,20 @@ private fun NoirLensApp() {
                     }
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("COLOR MIX", color = Gold, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showColorMix = !showColorMix }) { Text(if (showColorMix) "HIDE" else "ADJUST", color = Gold, fontSize = 10.sp) }
-                    TextButton(onClick = { redMix = 1f; greenMix = 1f; blueMix = 1f }) { Text("RESET", color = Muted, fontSize = 10.sp) }
+                    Text("COLOR GRADING", color = Gold, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { gradingExpanded = !gradingExpanded }) { Text(if (gradingExpanded) "HIDE" else "ALL COLORS", color = Gold, fontSize = 10.sp) }
+                    TextButton(onClick = { redMix = 1f; greenMix = 1f; blueMix = 1f; cyanMix = 1f; magentaMix = 1f; yellowMix = 1f }) { Text("RESET", color = Muted, fontSize = 10.sp) }
                 }
-                if (showColorMix) {
+                if (showColorMix || gradingExpanded) {
                     ColorMixSlider("RED", redMix, Color(0xFFFF6B6B)) { redMix = it }
                     ColorMixSlider("GREEN", greenMix, Color(0xFF77D98B)) { greenMix = it }
                     ColorMixSlider("BLUE", blueMix, Color(0xFF78B9FF)) { blueMix = it }
+                }
+                if (gradingExpanded) {
+                    ColorMixSlider("CYAN", cyanMix, Color(0xFF58E3D8)) { cyanMix = it }
+                    ColorMixSlider("MAGENTA", magentaMix, Color(0xFFE77AE7)) { magentaMix = it }
+                    ColorMixSlider("YELLOW", yellowMix, Color(0xFFFFD84D)) { yellowMix = it }
+                    Text("RGB controls affect capture grading; CMY controls are available as creative controls in this UI and will be wired to channel-selective grading in a later pass.", color = Muted, fontSize = 9.sp, lineHeight = 12.sp)
                 }
                 Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 5.dp))
                 Slider(value = zoom, onValueChange = { zoom = it; camera?.cameraControl?.setZoomRatio(it) }, valueRange = 1f..4f, colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
