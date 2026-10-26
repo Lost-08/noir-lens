@@ -241,7 +241,7 @@ private fun NoirLensApp() {
                     ColorMixSlider("CYAN", cyanMix, Color(0xFF58E3D8)) { cyanMix = it }
                     ColorMixSlider("MAGENTA", magentaMix, Color(0xFFE77AE7)) { magentaMix = it }
                     ColorMixSlider("YELLOW", yellowMix, Color(0xFFFFD84D)) { yellowMix = it }
-                    Text("RGB controls affect capture grading; CMY controls are available as creative controls in this UI and will be wired to channel-selective grading in a later pass.", color = Muted, fontSize = 9.sp, lineHeight = 12.sp)
+                    Text("RGB + CMY channel controls are applied to the saved photo. Each slider ranges from 50% to 150%.", color = Muted, fontSize = 9.sp, lineHeight = 12.sp)
                 }
                 Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 5.dp))
                 Slider(value = zoom, onValueChange = { zoom = it; camera?.cameraControl?.setZoomRatio(it) }, valueRange = 1f..4f, colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
@@ -251,7 +251,7 @@ private fun NoirLensApp() {
                         Box(Modifier.size(76.dp).border(3.dp, Color.White, CircleShape).padding(6.dp).clip(CircleShape).background(Gold).clickable(enabled = permission) {
                             val imageCapture = capture
                             if (imageCapture == null) { Toast.makeText(context, "Camera is starting", Toast.LENGTH_SHORT).show() }
-                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context), selectedFilter, filterIntensity, redMix, greenMix, blueMix) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context), selectedFilter, filterIntensity, redMix, greenMix, blueMix, cyanMix, magentaMix, yellowMix) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
                         }, contentAlignment = Alignment.Center) { Icon(Icons.Default.CameraAlt, null, tint = Ink, modifier = Modifier.size(29.dp)) }
                         Text(status, color = Muted, fontSize = 8.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 5.dp))
                     }
@@ -417,19 +417,19 @@ private fun gradeBitmap(src: Bitmap, brightness: Float, saturation: Float, contr
     return out
 }
 
-private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float, onResult: (String) -> Unit) {
+private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float, cyanMix: Float, magentaMix: Float, yellowMix: Float, onResult: (String) -> Unit) {
     val name = "NoirLens_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
     val values = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, name); put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg"); put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/NoirLens") }
     val options = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values).build()
     imageCapture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
             val uri = outputFileResults.savedUri
-            val hasRgbAdjustment = kotlin.math.abs(redMix - 1f) > 0.001f || kotlin.math.abs(greenMix - 1f) > 0.001f || kotlin.math.abs(blueMix - 1f) > 0.001f
+            val hasRgbAdjustment = kotlin.math.abs(redMix - 1f) > 0.001f || kotlin.math.abs(greenMix - 1f) > 0.001f || kotlin.math.abs(blueMix - 1f) > 0.001f || kotlin.math.abs(cyanMix - 1f) > 0.001f || kotlin.math.abs(magentaMix - 1f) > 0.001f || kotlin.math.abs(yellowMix - 1f) > 0.001f
             if (uri == null || ((filter == "NATURAL" || intensity <= 0f) && !hasRgbAdjustment)) {
                 onResult("PHOTO SAVED")
             } else {
                 Thread({
-                    val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity, redMix, greenMix, blueMix) }.getOrDefault(false)
+                    val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity, redMix, greenMix, blueMix, cyanMix, magentaMix, yellowMix) }.getOrDefault(false)
                     executor.execute { onResult(if (applied) "PHOTO SAVED · $filter" else "PHOTO SAVED · FILTER FAILED") }
                 }, "NoirLens-Filter").start()
             }
@@ -438,7 +438,7 @@ private fun saveCapture(context: android.content.Context, imageCapture: ImageCap
     })
 }
 
-private fun applyPhotoFilter(context: android.content.Context, uri: android.net.Uri, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float): Boolean {
+private fun applyPhotoFilter(context: android.content.Context, uri: android.net.Uri, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float, cyanMix: Float, magentaMix: Float, yellowMix: Float): Boolean {
     val source = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return false
     val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
     val identity = ColorMatrix().array
@@ -486,9 +486,12 @@ private fun applyPhotoFilter(context: android.content.Context, uri: android.net.
     }
     val blended = FloatArray(20) { i -> identity[i] + (look[i] - identity[i]) * intensity.coerceIn(0f, 1f) }
     // Independently scale each RGB channel; values below 1 reduce that channel, above 1 boost it.
-    for (i in 0..4) blended[i] *= redMix.coerceIn(0.5f, 1.5f)
-    for (i in 5..9) blended[i] *= greenMix.coerceIn(0.5f, 1.5f)
-    for (i in 10..14) blended[i] *= blueMix.coerceIn(0.5f, 1.5f)
+    val redGain = redMix * magentaMix * yellowMix
+    val greenGain = greenMix * cyanMix * yellowMix
+    val blueGain = blueMix * cyanMix * magentaMix
+    for (i in 0..4) blended[i] *= redGain.coerceIn(0.125f, 3.375f)
+    for (i in 5..9) blended[i] *= greenGain.coerceIn(0.125f, 3.375f)
+    for (i in 10..14) blended[i] *= blueGain.coerceIn(0.125f, 3.375f)
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
         colorFilter = ColorMatrixColorFilter(ColorMatrix(blended))
     }
