@@ -26,6 +26,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,7 +76,19 @@ private fun NoirLensApp() {
     var flash by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var exposure by remember { mutableFloatStateOf(0f) }
+    var selectedFilter by remember { mutableStateOf("NATURAL") }
+    var filterIntensity by remember { mutableFloatStateOf(0.8f) }
+    var redMix by remember { mutableFloatStateOf(1f) }
+    var greenMix by remember { mutableFloatStateOf(1f) }
+    var blueMix by remember { mutableFloatStateOf(1f) }
+    var showColorMix by remember { mutableStateOf(true) }
     var mode by remember { mutableStateOf("PHOTO") }
+    var cinemaMode by remember { mutableStateOf(false) }
+    var selectedLens by remember { mutableStateOf("35mm Cinema") }
+    var gradingExpanded by remember { mutableStateOf(false) }
+    var cyanMix by remember { mutableFloatStateOf(1f) }
+    var magentaMix by remember { mutableFloatStateOf(1f) }
+    var yellowMix by remember { mutableFloatStateOf(1f) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
     var pickedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -84,6 +98,9 @@ private fun NoirLensApp() {
     var warmth by remember { mutableFloatStateOf(0f) }
     var showEditor by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("READY TO SHOOT") }
+    LaunchedEffect(flash, capture) {
+        capture?.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+    }
     val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }
@@ -119,6 +136,14 @@ private fun NoirLensApp() {
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xFF202329))) {
                     if (permission) {
                         CameraPreview(onCameraReady = { cam, imageCapture -> camera = cam; capture = imageCapture })
+                        // Live tint preview: selected look updates immediately while composing the shot.
+                        // Full color-matrix grading is still applied to the captured JPEG after capture.
+                        if (selectedFilter != "NATURAL" && filterIntensity > 0f) {
+                            Box(
+                                Modifier.fillMaxSize()
+                                    .background(liveFilterTint(selectedFilter, filterIntensity, redMix, greenMix, blueMix))
+                            )
+                        }
                         if (grid) RuleOfThirds(Modifier.fillMaxSize())
                         Column(Modifier.align(Alignment.TopStart).padding(14.dp)) {
                             Text("● LIVE", color = Color(0xFFDB796F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -136,12 +161,89 @@ private fun NoirLensApp() {
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    SmallTool(Icons.Default.FlashOn, if (flash) "FLASH ON" else "FLASH OFF", flash) { flash = !flash; capture?.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF }
-                    SmallTool(Icons.Default.Exposure, "EXPOSURE", false) { exposure = (exposure + 0.5f).let { if (it > 2f) -2f else it }; applyExposure(camera, exposure) }
+                    SmallTool(Icons.Default.FlashOn, if (flash) "FLASH ON" else "FLASH OFF", flash) {
+                        val cam = camera
+                        if (cam == null) {
+                            Toast.makeText(context, "Camera is starting", Toast.LENGTH_SHORT).show()
+                        } else if (!cam.cameraInfo.hasFlashUnit()) {
+                            flash = false
+                            capture?.flashMode = ImageCapture.FLASH_MODE_OFF
+                            Toast.makeText(context, "This camera has no flash unit", Toast.LENGTH_LONG).show()
+                        } else {
+                            flash = !flash
+                            capture?.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+                        }
+                    }
                     SmallTool(Icons.Default.Tune, "EDIT PHOTO", false) { galleryPicker.launch("image/*") }
-                    SmallTool(Icons.Default.AutoAwesome, "AI TOOLS", false) { Toast.makeText(context, "AI tools are planned as an optional module; no AI model is bundled in v1.", Toast.LENGTH_LONG).show() }
+                    SmallTool(Icons.Default.AutoAwesome, "AI TOOLS", false) { Toast.makeText(context, "AI enhancement is not available yet; a real model/service must be integrated.", Toast.LENGTH_LONG).show() }
                 }
-                Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 12.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("EXPOSURE", color = Muted, fontSize = 10.sp, letterSpacing = 1.2.sp, modifier = Modifier.width(82.dp))
+                    Slider(value = exposure, onValueChange = { exposure = it; applyExposure(camera, it) }, valueRange = -2f..2f, steps = 7, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
+                    Text("${if (exposure > 0f) "+" else ""}${exposure.format(1)}", color = Gold, fontSize = 11.sp, modifier = Modifier.width(43.dp))
+                }
+                Text("LIVE LOOK PREVIEW  ·  FINAL COLOR GRADE APPLIED AFTER CAPTURE", color = Muted, fontSize = 9.sp, letterSpacing = 0.8.sp, modifier = Modifier.padding(top = 2.dp, bottom = 5.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf(
+                        "NATURAL", "NOIR", "SILVER", "MATTE B&W", "WARM FILM",
+                        "PORTRA", "GOLDEN", "SUNSET", "TEAL", "TEAL ORANGE",
+                        "VINTAGE", "RETRO", "FADE", "COOL", "ARCTIC",
+                        "MOODY", "CINEMA", "DRAMA", "AMBER", "ROSE",
+                        "BLOOM", "FOREST", "OLIVE", "OCEAN", "MIDNIGHT",
+                        "BLUE HOUR", "DESERT", "CREAM", "PASTEL", "POP",
+                        "CRISP", "HIGH KEY", "LOW KEY", "SEPIA", "CROSS PROCESS",
+                        "FROST", "AUTUMN", "SPRING", "MONO WARM", "MONO COOL"
+                    ).forEach { look ->
+                        FilterPill(look, selectedFilter == look) { selectedFilter = look }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 5.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf("PHOTO", "VIDEO", "PORTRAIT", "NIGHT", "CINEMA").forEach { tab ->
+                        FilterPill(tab, if (tab == "CINEMA") cinemaMode else (!cinemaMode && mode == tab), {
+                            if (tab == "CINEMA") cinemaMode = !cinemaMode else { cinemaMode = false; mode = tab }
+                        })
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("HD", color = Gold, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterVertically).clip(RoundedCornerShape(8.dp)).border(1.dp, Gold, RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 6.dp))
+                }
+                if (cinemaMode) {
+                    Text("CINEMA LENS · SELECT A LOOK", color = Gold, fontSize = 9.sp, letterSpacing = 1.1.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("18mm Wide", "24mm Wide", "28mm Street", "35mm Cinema", "40mm Vintage", "50mm Prime", "58mm Portrait", "65mm Cinema", "75mm Portrait", "85mm Portrait", "90mm Macro", "100mm Macro", "105mm Prime", "135mm Tele", "200mm Tele", "Anamorphic 1.33x", "Anamorphic 1.5x", "Anamorphic 1.8x", "Anamorphic 2.0x", "Super 35", "Full Frame", "Vintage Glass", "Soft Focus", "Dream Glow", "Clean Digital", "Film 5219", "Film 500T", "Film 250D", "Film 50D", "HD Detail").forEachIndexed { index, lens ->
+                            FilterPill(lens, selectedLens == lens) {
+                                selectedLens = lens
+                                val lensZoom = when (index) { 0 -> 1f; 1 -> 1.15f; 2 -> 1.25f; 3 -> 1.4f; 4 -> 1.5f; 5 -> 1.7f; 6 -> 1.9f; 7 -> 2.1f; 8 -> 2.3f; 9 -> 2.5f; 10 -> 2.7f; 11 -> 2.9f; 12 -> 3.1f; 13 -> 3.3f; else -> 4f }
+                                zoom = lensZoom.coerceIn(1f, 4f); camera?.cameraControl?.setZoomRatio(zoom)
+                                selectedFilter = when { lens.contains("Anamorphic") -> "CINEMA"; lens.contains("Vintage") || lens.contains("Film") -> "WARM FILM"; lens.contains("Dream") || lens.contains("Soft") -> "BLOOM"; lens == "HD Detail" || lens == "Clean Digital" -> "CRISP"; lens.contains("Portrait") -> "PORTRA"; else -> "CINEMA" }
+                            }
+                        }
+                    }
+                    Text("Lens names are creative presets; framing uses supported digital zoom. True optical lenses depend on your phone hardware.", color = Muted, fontSize = 9.sp, lineHeight = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 3.dp))
+                }
+                if (selectedFilter != "NATURAL") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("LOOK", color = Muted, fontSize = 9.sp, modifier = Modifier.width(66.dp))
+                        Slider(value = filterIntensity, onValueChange = { filterIntensity = it }, valueRange = 0f..1f, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold))
+                        Text("${(filterIntensity * 100).roundToInt()}%", color = Gold, fontSize = 10.sp, modifier = Modifier.width(35.dp))
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("COLOR GRADING", color = Gold, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { gradingExpanded = !gradingExpanded }) { Text(if (gradingExpanded) "HIDE" else "ALL COLORS", color = Gold, fontSize = 10.sp) }
+                    TextButton(onClick = { redMix = 1f; greenMix = 1f; blueMix = 1f; cyanMix = 1f; magentaMix = 1f; yellowMix = 1f }) { Text("RESET", color = Muted, fontSize = 10.sp) }
+                }
+                if (showColorMix || gradingExpanded) {
+                    ColorMixSlider("RED", redMix, Color(0xFFFF6B6B)) { redMix = it }
+                    ColorMixSlider("GREEN", greenMix, Color(0xFF77D98B)) { greenMix = it }
+                    ColorMixSlider("BLUE", blueMix, Color(0xFF78B9FF)) { blueMix = it }
+                }
+                if (gradingExpanded) {
+                    ColorMixSlider("CYAN", cyanMix, Color(0xFF58E3D8)) { cyanMix = it }
+                    ColorMixSlider("MAGENTA", magentaMix, Color(0xFFE77AE7)) { magentaMix = it }
+                    ColorMixSlider("YELLOW", yellowMix, Color(0xFFFFD84D)) { yellowMix = it }
+                    Text("RGB + CMY channel controls are applied to the saved photo. Each slider ranges from 50% to 150%.", color = Muted, fontSize = 9.sp, lineHeight = 12.sp)
+                }
+                Text("ZOOM  ${zoom.format(1)}×", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(top = 5.dp))
                 Slider(value = zoom, onValueChange = { zoom = it; camera?.cameraControl?.setZoomRatio(it) }, valueRange = 1f..4f, colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Panel), enabled = permission)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     IconButton(onClick = { galleryPicker.launch("image/*") }, modifier = Modifier.size(52.dp).border(1.dp, Color(0xFF3A3D43), RoundedCornerShape(15.dp))) { Icon(Icons.Default.Photo, "Choose photo", tint = Color.White) }
@@ -149,7 +251,7 @@ private fun NoirLensApp() {
                         Box(Modifier.size(76.dp).border(3.dp, Color.White, CircleShape).padding(6.dp).clip(CircleShape).background(Gold).clickable(enabled = permission) {
                             val imageCapture = capture
                             if (imageCapture == null) { Toast.makeText(context, "Camera is starting", Toast.LENGTH_SHORT).show() }
-                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context)) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+                            else saveCapture(context, imageCapture, ContextCompat.getMainExecutor(context), selectedFilter, filterIntensity, redMix, greenMix, blueMix, cyanMix, magentaMix, yellowMix) { message -> status = message; Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
                         }, contentAlignment = Alignment.Center) { Icon(Icons.Default.CameraAlt, null, tint = Ink, modifier = Modifier.size(29.dp)) }
                         Text(status, color = Muted, fontSize = 8.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 5.dp))
                     }
@@ -192,6 +294,64 @@ private fun RuleOfThirds(modifier: Modifier = Modifier) {
             drawLine(Color.White.copy(alpha = 0.42f), Offset(0f, y), Offset(size.width, y), stroke.width)
         }
     }
+}
+
+@Composable
+/**
+ * Lightweight live view look overlay. This gives immediate visual feedback on the viewfinder.
+ * The still image is graded with the corresponding color matrix after capture.
+ */
+private fun liveFilterTint(filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float): Color {
+    val tint = when (filter) {
+        "NOIR", "MATTE B&W", "SILVER", "MONO WARM", "MONO COOL" -> Color(0xFF777777)
+        "WARM FILM", "GOLDEN", "SUNSET", "AMBER", "AUTUMN", "DESERT", "SEPIA" -> Color(0xFFFFA34D)
+        "PORTRA", "ROSE", "BLOOM", "SPRING" -> Color(0xFFFFB5C8)
+        "TEAL", "TEAL ORANGE", "OCEAN" -> Color(0xFF35B8B0)
+        "VINTAGE", "RETRO" -> Color(0xFFB58B59)
+        "FADE", "CREAM", "PASTEL", "HIGH KEY" -> Color(0xFFFFE9C9)
+        "COOL", "ARCTIC", "FROST", "BLUE HOUR" -> Color(0xFF77BCEB)
+        "MOODY", "CINEMA", "DRAMA", "LOW KEY", "MIDNIGHT" -> Color(0xFF17233D)
+        "FOREST", "OLIVE" -> Color(0xFF547A43)
+        "CRISP", "POP", "CROSS PROCESS" -> Color(0xFFFFD54F)
+        else -> Color.Transparent
+    }
+    val baseAlpha = when (filter) {
+        "NOIR", "MATTE B&W", "MONO WARM", "MONO COOL" -> 0.30f
+        "MIDNIGHT", "LOW KEY", "MOODY" -> 0.22f
+        else -> 0.15f
+    }
+    val mixed = Color(
+        (tint.red * redMix).coerceIn(0f, 1f),
+        (tint.green * greenMix).coerceIn(0f, 1f),
+        (tint.blue * blueMix).coerceIn(0f, 1f),
+        1f
+    )
+    return mixed.copy(alpha = baseAlpha * intensity.coerceIn(0f, 1f))
+}
+
+@Composable
+private fun ColorMixSlider(label: String, value: Float, tint: Color, onChange: (Float) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(30.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = tint, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(48.dp))
+        Slider(value = value, onValueChange = onChange, valueRange = 0.5f..1.5f, modifier = Modifier.weight(1f), colors = SliderDefaults.colors(thumbColor = tint, activeTrackColor = tint, inactiveTrackColor = Panel))
+        Text(String.format(Locale.US, "%.2f×", value), color = Color.White, fontSize = 9.sp, modifier = Modifier.width(40.dp))
+    }
+}
+
+@Composable
+private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (selected) Ink else Color.White,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+        modifier = Modifier.clip(RoundedCornerShape(18.dp))
+            .background(if (selected) Gold else Panel)
+            .border(1.dp, if (selected) Gold else Color(0xFF34373D), RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    )
 }
 
 @Composable
@@ -257,14 +417,103 @@ private fun gradeBitmap(src: Bitmap, brightness: Float, saturation: Float, contr
     return out
 }
 
-private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, onResult: (String) -> Unit) {
+private fun saveCapture(context: android.content.Context, imageCapture: ImageCapture, executor: Executor, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float, cyanMix: Float, magentaMix: Float, yellowMix: Float, onResult: (String) -> Unit) {
     val name = "NoirLens_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
     val values = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, name); put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg"); put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/NoirLens") }
     val options = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values).build()
     imageCapture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
-        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { onResult("PHOTO SAVED") }
+        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+            val uri = outputFileResults.savedUri
+            val hasRgbAdjustment = kotlin.math.abs(redMix - 1f) > 0.001f || kotlin.math.abs(greenMix - 1f) > 0.001f || kotlin.math.abs(blueMix - 1f) > 0.001f || kotlin.math.abs(cyanMix - 1f) > 0.001f || kotlin.math.abs(magentaMix - 1f) > 0.001f || kotlin.math.abs(yellowMix - 1f) > 0.001f
+            if (uri == null || ((filter == "NATURAL" || intensity <= 0f) && !hasRgbAdjustment)) {
+                onResult("PHOTO SAVED")
+            } else {
+                Thread({
+                    val applied = runCatching { applyPhotoFilter(context, uri, filter, intensity, redMix, greenMix, blueMix, cyanMix, magentaMix, yellowMix) }.getOrDefault(false)
+                    executor.execute { onResult(if (applied) "PHOTO SAVED · $filter" else "PHOTO SAVED · FILTER FAILED") }
+                }, "NoirLens-Filter").start()
+            }
+        }
         override fun onError(exception: ImageCaptureException) { onResult("CAPTURE FAILED: ${exception.message ?: "unknown error"}") }
     })
+}
+
+private fun applyPhotoFilter(context: android.content.Context, uri: android.net.Uri, filter: String, intensity: Float, redMix: Float, greenMix: Float, blueMix: Float, cyanMix: Float, magentaMix: Float, yellowMix: Float): Boolean {
+    val source = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return false
+    val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+    val identity = ColorMatrix().array
+    val look = when (filter) {
+        "NOIR" -> filterMatrix(1f, 1f, 1f, 0f, 0f, 0f, 0f)
+        "SILVER" -> filterMatrix(0.96f, 1.04f, 1.04f, 1.04f, 2f, 2f, 0f)
+        "MATTE B&W" -> filterMatrix(0.88f, 0.94f, 0.94f, 0.94f, 18f, 18f, 0f)
+        "WARM FILM" -> filterMatrix(1.02f, 1.10f, 1.02f, 0.88f, 10f, 2f, -7f)
+        "PORTRA" -> filterMatrix(1.05f, 1.08f, 1.01f, 0.94f, 8f, 3f, -2f)
+        "GOLDEN" -> filterMatrix(1.04f, 1.16f, 1.03f, 0.82f, 18f, 5f, -10f)
+        "SUNSET" -> filterMatrix(1.08f, 1.18f, 0.98f, 0.82f, 20f, 1f, -7f)
+        "TEAL" -> filterMatrix(1.02f, 0.92f, 1.03f, 1.10f, -2f, 5f, 10f)
+        "TEAL ORANGE" -> filterMatrix(1.10f, 1.12f, 0.98f, 1.08f, 12f, 1f, 7f)
+        "VINTAGE" -> filterMatrix(0.92f, 0.96f, 0.88f, 0.76f, 14f, 4f, -6f)
+        "RETRO" -> filterMatrix(0.96f, 1.08f, 0.92f, 0.78f, 12f, 3f, -8f)
+        "FADE" -> filterMatrix(0.88f, 0.86f, 0.86f, 0.86f, 26f, 26f, 26f)
+        "COOL" -> filterMatrix(1.04f, 0.94f, 1.01f, 1.12f, -3f, 2f, 12f)
+        "ARCTIC" -> filterMatrix(1.08f, 0.88f, 1.02f, 1.18f, -5f, 4f, 18f)
+        "MOODY" -> filterMatrix(0.86f, 0.92f, 0.96f, 1.02f, -8f, -3f, 2f)
+        "CINEMA" -> filterMatrix(0.94f, 1.05f, 0.98f, 1.04f, 3f, 1f, 5f)
+        "DRAMA" -> filterMatrix(1.12f, 1.08f, 1.02f, 1.02f, -6f, -4f, -2f)
+        "AMBER" -> filterMatrix(1.04f, 1.18f, 1.02f, 0.82f, 9f, 2f, -8f)
+        "ROSE" -> filterMatrix(1.06f, 1.12f, 0.94f, 1.02f, 9f, -1f, 3f)
+        "BLOOM" -> filterMatrix(0.92f, 1.08f, 1.04f, 1.08f, 12f, 8f, 10f)
+        "FOREST" -> filterMatrix(1.02f, 0.94f, 1.08f, 0.92f, 0f, 5f, -3f)
+        "OLIVE" -> filterMatrix(0.92f, 1.00f, 1.04f, 0.84f, 6f, 4f, -8f)
+        "OCEAN" -> filterMatrix(1.08f, 0.90f, 1.02f, 1.16f, -2f, 5f, 13f)
+        "MIDNIGHT" -> filterMatrix(0.82f, 0.82f, 0.90f, 1.12f, -12f, -6f, 8f)
+        "BLUE HOUR" -> filterMatrix(1.02f, 0.90f, 1.00f, 1.14f, -4f, 1f, 12f)
+        "DESERT" -> filterMatrix(0.94f, 1.10f, 1.02f, 0.86f, 14f, 7f, -5f)
+        "CREAM" -> filterMatrix(0.86f, 1.06f, 1.02f, 0.94f, 14f, 10f, 4f)
+        "PASTEL" -> filterMatrix(0.82f, 1.04f, 1.04f, 1.02f, 18f, 16f, 14f)
+        "POP" -> filterMatrix(1.22f, 1.08f, 1.04f, 1.02f, 2f, 1f, 0f)
+        "CRISP" -> filterMatrix(1.12f, 1.04f, 1.04f, 1.04f, 0f, 0f, 0f)
+        "HIGH KEY" -> filterMatrix(0.92f, 1.06f, 1.06f, 1.06f, 20f, 20f, 20f)
+        "LOW KEY" -> filterMatrix(0.92f, 0.78f, 0.78f, 0.82f, -18f, -18f, -14f)
+        "SEPIA" -> filterMatrix(0.88f, 1.10f, 0.94f, 0.72f, 15f, 6f, -8f)
+        "CROSS PROCESS" -> filterMatrix(1.10f, 1.10f, 0.92f, 1.10f, 8f, -2f, 10f)
+        "FROST" -> filterMatrix(0.94f, 0.92f, 1.04f, 1.14f, 7f, 12f, 18f)
+        "AUTUMN" -> filterMatrix(1.02f, 1.14f, 1.00f, 0.82f, 12f, 3f, -10f)
+        "SPRING" -> filterMatrix(0.92f, 1.06f, 1.06f, 1.00f, 10f, 12f, 4f)
+        "MONO WARM" -> filterMatrix(0.02f, 1.08f, 0.94f, 0.78f, 12f, 4f, -5f)
+        "MONO COOL" -> filterMatrix(0.02f, 0.88f, 1.02f, 1.14f, -3f, 5f, 12f)
+        else -> identity
+    }
+    val blended = FloatArray(20) { i -> identity[i] + (look[i] - identity[i]) * intensity.coerceIn(0f, 1f) }
+    // Independently scale each RGB channel; values below 1 reduce that channel, above 1 boost it.
+    val redGain = redMix * magentaMix * yellowMix
+    val greenGain = greenMix * cyanMix * yellowMix
+    val blueGain = blueMix * cyanMix * magentaMix
+    for (i in 0..4) blended[i] *= redGain.coerceIn(0.125f, 3.375f)
+    for (i in 5..9) blended[i] *= greenGain.coerceIn(0.125f, 3.375f)
+    for (i in 10..14) blended[i] *= blueGain.coerceIn(0.125f, 3.375f)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(blended))
+    }
+    android.graphics.Canvas(output).drawBitmap(source, 0f, 0f, paint)
+    val saved = context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+        output.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+    } ?: false
+    source.recycle()
+    output.recycle()
+    return saved
+}
+
+
+private fun filterMatrix(saturation: Float, red: Float, green: Float, blue: Float, redOffset: Float, greenOffset: Float, blueOffset: Float): FloatArray {
+    val matrix = ColorMatrix(floatArrayOf(
+        red, 0f, 0f, 0f, redOffset,
+        0f, green, 0f, 0f, greenOffset,
+        0f, 0f, blue, 0f, blueOffset,
+        0f, 0f, 0f, 1f, 0f
+    ))
+    matrix.postConcat(ColorMatrix().apply { setSaturation(saturation) })
+    return matrix.array
 }
 
 private fun applyExposure(camera: Camera?, ev: Float) {
